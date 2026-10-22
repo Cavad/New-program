@@ -1,0 +1,5 @@
+node_modules/
+*.log
+/launcher/app/
+/build/
+.DS_Store
