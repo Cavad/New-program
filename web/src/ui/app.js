@@ -820,8 +820,9 @@
       content: h('div', { class: 'stack' }, inp, h('div', { class: 'hint' }, t('setCellsHint'))),
       buttons: [{ label: t('cancel') }, { label: t('apply'), kind: 'primary', run: () => applyToSelection(inp.value) }],
     });
-    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { applyToSelection(inp.value); m.close(); } });
-    setTimeout(() => { inp.focus(); inp.setSelectionRange(1, 1); }, 40);
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); applyToSelection(inp.value); m.close(); } });
+    inp.focus();
+    inp.setSelectionRange(inp.value.length, inp.value.length);
   }
 
   function selBounds() {
@@ -1024,15 +1025,16 @@
       cal.appendChild(h('button', {
         class: g + (d === Number(cfg.startDay) ? ' start' : '') + (comp.weekend[d] ? ' we' : ''),
         title: t('groupWorks', { g, d }),
-        onclick: () => setCfg({ startDay: d }),
+        onclick: () => setCfg({ startDay: d, oneDay: d === 1 ? cfg.oneDay : false }),
       }, String(d)));
     }
     const prev = U.addMonths(App.view.year, App.view.month, -1);
     const prevRec = App.state.months[U.monthKey(prev.year, prev.month)];
     const suggestion = prevRec && prevRec.rotation ? TS.rotation.continueFrom(prevRec.rotation, block, prev.year, prev.month) : null;
     const sameAsSuggestion = suggestion && suggestion.group === cfg.group && Number(suggestion.startDay) === Number(cfg.startDay) && !!suggestion.oneDay === !!cfg.oneDay;
-    const oneDay = h('label', { class: 'switch' },
-      h('input', { type: 'checkbox', checked: !!cfg.oneDay, onchange: (e) => setCfg({ oneDay: e.target.checked }) }),
+    const oneDayAllowed = Number(cfg.startDay) === 1;
+    const oneDay = h('label', { class: 'switch', style: oneDayAllowed ? null : { opacity: 0.55 }, title: oneDayAllowed ? '' : t('oneDayOnlyFirst') },
+      h('input', { type: 'checkbox', checked: !!cfg.oneDay && oneDayAllowed, disabled: !oneDayAllowed, onchange: (e) => setCfg({ oneDay: e.target.checked }) }),
       h('span', { class: 'track' }),
       h('span', null, h('div', { class: 'strong' }, t('oneDayStart')), h('div', { class: 'hint' }, t('oneDayHint', { g: cfg.group }))));
     const setup = h('div', { class: 'card' },

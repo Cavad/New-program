@@ -306,7 +306,9 @@
       const cells = [];
       for (let c = 1; c <= maxCol; c++) {
         const cell = row.getCell(c);
-        cells[c] = { value: cell.value, style: cloneStyle(cell.style) };
+        let value = cell.value;
+        if (value && typeof value === 'object' && (value.sharedFormula || value.formula)) value = value.result === undefined ? null : value.result;
+        cells[c] = { value, style: cloneStyle(cell.style) };
       }
       return { height: row.height, cells };
     };
@@ -342,7 +344,7 @@
     }
 
     // remap a snapshot row into the new column layout
-    const writeRow = (r, snap, extraDayStyleFrom) => {
+    const writeRow = (r, snap, extraDayStyleFrom, stylesOnly) => {
       const row = ws.getRow(r);
       if (snap.height) row.height = snap.height;
       for (let c = 1; c <= maxCol; c++) {
@@ -352,7 +354,7 @@
         const nc = shiftCol(c);
         const cell = row.getCell(nc);
         cell.style = cloneStyle(s.style);
-        cell.value = s.value;
+        cell.value = stylesOnly ? null : s.value;
       }
       if (delta > 0 && extraDayStyleFrom) {
         for (let d = info.days + 1; d <= days; d++) {
@@ -385,7 +387,7 @@
     const n = composed.rows.length;
     composed.rows.forEach((rowData, i) => {
       const r = info.headerRow + 1 + i;
-      writeRow(r, empTpl, true);
+      writeRow(r, empTpl, true, true);
       const row = ws.getRow(r);
       row.height = empTpl.height || 15;
       const emp = rowData.emp;
@@ -462,7 +464,7 @@
     ws.pageSetup.printArea = 'A1:' + U.colLetter(pa.right > info.lastDayCol ? pa.right + delta : pa.right) + newBottom;
     ws.pageSetup.fitToPage = true;
     ws.pageSetup.fitToWidth = 1;
-    ws.pageSetup.fitToHeight = 0;
+    ws.pageSetup.fitToHeight = 1;
     const sapL = U.colLetter(info.cols.sap);
     const first = info.headerRow + 1;
     const last = info.headerRow + n;

@@ -59,14 +59,20 @@
     return v === null || v === undefined || (typeof v === 'string' && v.trim() === '');
   }
 
+  const WEEKDAY_ABBR = /^(MO|MON|TU|TUE|WE|WED|TH|THU|FR|FRI|SA|SAT|SU|SUN|B|BE|B\.E|CA|C\.A|C|S|BAZ|PN|VT|SR|CT|PT|SB|VS)\.?$/;
+
+  /** Day number of a header cell: 1, "01", "1.", "01.10", "01.10.2026", "1 Th", "1\nB.e", or a date. */
   function dayNumber(v) {
     if (typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 31) return v;
-    if (typeof v === 'string' && /^\s*\d{1,2}\s*$/.test(v)) {
-      const n = parseInt(v, 10);
-      return n >= 1 && n <= 31 ? n : null;
-    }
     if (v instanceof Date && !isNaN(v)) return v.getDate();
-    return null;
+    if (typeof v !== 'string') return null;
+    const m = v.trim().match(/^(\d{1,2})\s*(?:[.\/-]\s*(\d{1,2})(?:\s*[.\/-]\s*\d{2,4})?)?\.?\s*([^\d]{0,5})$/);
+    if (!m) return null;
+    const n = parseInt(m[1], 10);
+    if (n < 1 || n > 31) return null;
+    const suffix = U.fold(m[3] || '').replace(/[\s,]/g, '');
+    if (suffix && !WEEKDAY_ABBR.test(suffix)) return null; // "1st", "2nd" are shift codes, not headers
+    return n;
   }
 
   /** Finds a run of day numbers 1,2,3,... (>= 28 long) in a row. */
@@ -119,15 +125,15 @@
     return U.nameTokens(s).length <= 4;
   }
 
-  /** Name for a person row: the nearest text cell left of the first day column. */
-  function rowName(sheet, r, header) {
+  /** Text cells left of the first day column, nearest first (name, maybe position, ...). */
+  function rowTexts(sheet, r, header) {
+    const out = [];
     for (let c = header.firstCol - 1; c >= 0; c--) {
       const v = cellAt(sheet, r, c);
-      if (isBlank(v)) continue;
-      if (typeof v === 'number') continue; // a running number / SAP code column
-      return String(v).trim();
+      if (isBlank(v) || typeof v === 'number' || v instanceof Date) continue; // running number / SAP code
+      out.push(String(v).trim());
     }
-    return null;
+    return out;
   }
 
   function detectBlocks(sheets) {
@@ -170,7 +176,8 @@
         const people = [];
         let blankRun = 0;
         for (let r = h.row + 1; r < nextHeaderRow; r++) {
-          const name = rowName(sheet, r, h);
+          const texts = rowTexts(sheet, r, h);
+          const name = texts.find(looksLikeName) || texts[0] || null;
           const values = countDayValues(sheet, r, h);
           let mergedDays = 0;
           for (let d = 1; d <= h.days; d++) if (mergeIdx.has(r + ':' + h.cols[d])) mergedDays++;
@@ -197,7 +204,7 @@
               raw.push(cellAt(sheet, r, c));
             }
           }
-          people.push({ name, sheetRow: r + 1, raw, merged });
+          people.push({ name, altNames: texts.filter((x) => x !== name && looksLikeName(x)), sheetRow: r + 1, raw, merged });
         }
         blocks.push({
           id: sheet.name + '!' + (h.row + 1),
@@ -265,6 +272,16 @@
     if (/^[VACTION]+$/.test(w) && /[VCT]/.test(w)) return 'V';
     if (/^[VACTION]+$/.test(w)) return 'V'; // "A", "ON", "O" pieces inside a vacation run
     return null;
+  }
+
+  /** True if `letters` simply continues the word being spelled ("SICK LEA" + "V" -> LEAVE). */
+  function continuesWord(type, soFar, letters) {
+    const words = (LEAVE_STARTS.find(([t]) => t === type) || [null, []])[1];
+    const tail = soFar.slice(-6);
+    for (const w of words) {
+      for (let k = 1; k <= tail.length; k++) if (w.includes(tail.slice(-k) + letters)) return true;
+    }
+    return false;
   }
 
   /** Leave type if `letters` clearly begins a new absence word ("V", "VA", "VACA", "SICK", "ATA"...). */
@@ -351,7 +368,7 @@
           const t = toks[k];
           if (t.t === 'frag') {
             const st = startType(t.letters);
-            if (cur && st && cur.type && st !== cur.type) cur = null;
+            if (cur && st && cur.type && st !== cur.type && !continuesWord(cur.type, cur.letters, t.letters)) cur = null;
             if (!cur) { cur = { start: k, lastFrag: k, letters: '', texts: [], type: null }; segs.push(cur); }
             // tokens between previous fragment and this one belong to the word
             for (let q = cur.lastFrag + 1; q < k; q++) if (toks[q].t === 'dual') cur.letters += toks[q].letters;
@@ -469,9 +486,10 @@
   function matchPeople(people, employees) {
     const pool = employees.filter((e) => e.category === 'shift');
     const others = employees.filter((e) => e.category !== 'shift');
+    const best = (p, e) => Math.max(...[p.name].concat(p.altNames || []).map((n) => scoreName(n, e)));
     const results = people.map((p) => {
-      const scored = pool.map((e) => ({ emp: e, score: scoreName(p.name, e) }))
-        .concat(others.map((e) => ({ emp: e, score: scoreName(p.name, e) - 20 })))
+      const scored = pool.map((e) => ({ emp: e, score: best(p, e) }))
+        .concat(others.map((e) => ({ emp: e, score: best(p, e) - 20 })))
         .filter((x) => x.score >= 40)
         .sort((a, b) => b.score - a.score);
       let empId = null;

@@ -9,13 +9,13 @@
 
   /**
    * cfg = { group: 'A'|'B', startDay: 1..31, oneDay: bool }
-   * `startDay` is the first day of the month the chosen group works. With `oneDay`
-   * that day is the last day of a block begun in the previous month.
+   * `startDay` is the first day of the month the chosen group works. With `oneDay` (only meaningful
+   * when the group starts on the 1st) that day is the last day of a block begun in the previous month.
    * Returns the day (relative to this month, may be <= 0) on which a block of `group` starts.
    */
   function anchorOf(cfg, block) {
     const start = Math.max(1, parseInt(cfg.startDay, 10) || 1);
-    return cfg.oneDay ? start - (block - 1) : start;
+    return cfg.oneDay && start === 1 ? start - (block - 1) : start;
   }
 
   /** Which group works on `day`: 'A' or 'B'. */

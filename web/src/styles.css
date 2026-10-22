@@ -397,8 +397,14 @@ table.etable { width: 100%; border-collapse: separate; border-spacing: 0; font-s
   .brand { min-width: 0; }
   .brand-sub { display: none; }
 }
+.rot-grid > *, .stack > *, .row > * { min-width: 0; }
 @media (max-width: 760px) {
   .topbar { flex-wrap: wrap; padding: 10px 12px; }
+  .top-actions { flex-wrap: wrap; width: 100%; }
+  .top-actions .btn.primary { margin-left: auto; }
+  .save-state { order: 9; }
+  .members { grid-template-columns: 1fr; }
+  .subbar { flex-wrap: wrap; }
   .month-switch { order: 3; width: 100%; justify-content: space-between; }
   .subbar, .content { padding-left: 12px; padding-right: 12px; }
   .tabs { overflow-x: auto; max-width: 100%; }

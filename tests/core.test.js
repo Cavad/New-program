@@ -191,3 +191,109 @@ test('employees can be read back from a filled timesheet', async () => {
   assert.deepStrictEqual(list.map((e) => e.category).join(','), Array(11).fill('office').concat(Array(11).fill('shift'), Array(8).fill('rotation')).join(','));
   assert.deepStrictEqual(list.slice(22).map((e) => e.group).join(''), 'AAAABBBB');
 });
+
+test('a word spelled letter by letter is not split (S I C K L E A V E)', () => {
+  const r = interpret(['S', 'I', 'C', 'K', null, 'L', 'E', 'A', 'V', 'E', 'V', 'A', 'C', 'A', 'T', 'I', 'O', 'N', '1st'].concat(Array(11).fill('OFF')));
+  for (let d = 1; d <= 10; d++) assert.strictEqual(r.values[d], 'SL', 'day ' + d);
+  for (let d = 11; d <= 18; d++) assert.strictEqual(r.values[d], 'V', 'day ' + d);
+  assert.strictEqual(r.values[19], '1st');
+});
+
+test('other layouts: SAP/position columns, dated headers, CSV and old .xls files', () => {
+  const state = TS.defaults.defaultState();
+  // a tidy sheet someone might send next year: №, SAP, Name, Position, then 01.11 ... 30.11
+  const header = ['№', 'SAP', 'Name', 'Position'];
+  for (let d = 1; d <= 30; d++) header.push(String(d).padStart(2, '0') + '.11');
+  const rowA = [1, 10807, 'Süleymanov Röyal', 'Weighbridge Operator'].concat(Array(30).fill('1st'));
+  const rowB = [2, 11073, 'Rəhimov Şahin', 'Weighbridge Operator'].concat(['vacation'], Array(29).fill(null));
+  const rowC = [3, 10765, 'Samir', 'Night Shift Operator'].concat(Array(30).fill('n'));
+  const ws = XLSX.utils.aoa_to_sheet([['Noyabr 2026 növbə qrafiki'], [], header, rowA, rowB, rowC]);
+  ws['!merges'] = [{ s: { r: 4, c: 4 }, e: { r: 4, c: 33 } }]; // vacation merged over the whole month
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+  const blocks = TS.shiftImport.detectBlocks(TS.shiftImport.readWorkbook(XLSX.write(wb, { type: 'array', bookType: 'xlsx' })));
+  assert.strictEqual(blocks.length, 1);
+  assert.strictEqual(blocks[0].month, 11);
+  assert.strictEqual(blocks[0].year, 2026);
+  const match = TS.shiftImport.matchPeople(blocks[0].people, state.employees);
+  const names = match.map((m) => (state.employees.find((e) => e.id === m.empId) || {}).name);
+  assert.deepStrictEqual(names, ['Süleymanov Röyal', 'Rəhimov Şahin', 'Şəmmədov Samir']);
+  const res = TS.shiftImport.buildImport(blocks[0], match.map((m) => m.empId), state, 2026, 11);
+  assert.strictEqual(res.imported['emp-11073'][30], 'V');
+  assert.strictEqual(res.imported['emp-10765'][5], 'N');
+  assert.strictEqual(res.notes['emp-11073'].filter((n) => n.level === 'error').length, 0);
+
+  // the real file saved as CSV (one sheet) and as old Excel 97 .xls
+  const real = XLSX.read(fs.readFileSync(path.join(FIX, 'Shift_work_timesheet.xlsx')));
+  const csv = XLSX.utils.sheet_to_csv(real.Sheets['2026']);
+  const csvBlocks = TS.shiftImport.detectBlocks(TS.shiftImport.readWorkbook(new TextEncoder().encode(csv)));
+  assert.strictEqual(TS.shiftImport.pickBlock(csvBlocks, 2026, 10).block.people.length, 11);
+  const xls = XLSX.write(real, { type: 'array', bookType: 'biff8' });
+  const xlsBlocks = TS.shiftImport.detectBlocks(TS.shiftImport.readWorkbook(xls));
+  const oct = TS.shiftImport.pickBlock(xlsBlocks, 2026, 10).block;
+  const st2 = TS.defaults.defaultState();
+  const m2 = TS.shiftImport.matchPeople(oct.people, st2.employees);
+  const r2 = TS.shiftImport.buildImport(oct, m2.map((m) => m.empId), st2, 2026, 10);
+  const filled = filledGrid();
+  st2.employees.forEach((e, i) => {
+    if (e.category !== 'shift') return;
+    for (let d = 1; d <= 31; d++) {
+      let v = r2.imported[e.id][d];
+      if (e.offAsBlank && v === 'OFF') v = '';
+      assert.strictEqual(String(v), String(filled[i][d]), `xls ${e.name} ${d}`);
+    }
+  });
+});
+
+test('export works with unusual forms: own output, a filled sheet, no employee rows, cover sheet, few people', async () => {
+  const state = TS.defaults.defaultState();
+  const empty = fs.readFileSync(path.join(FIX, 'October_timesheet_empty.xlsx'));
+  const nov = (await TS.excel.exportMonth(state, 2026, 11, empty)).bytes; // 30-day form with 30 rows
+
+  const checkMonth = async (tpl, y, m, st) => {
+    st = st || state;
+    const out = await TS.excel.exportMonth(st, y, m, tpl);
+    assert.strictEqual(out.source, 'file', 'template accepted');
+    const ws = await readBack(out.bytes);
+    const days = TS.util.daysInMonth(y, m);
+    const n = st.employees.length;
+    assert.strictEqual(ws.getRow(4).getCell(4 + days).value, days);
+    assert.strictEqual(ws.getRow(4).getCell(5 + days).value, 'Total hours');
+    for (let i = 0; i < n; i++) assert.strictEqual(ws.getRow(5 + i).getCell(3).value, st.employees[i].name);
+    // nothing left over between the last employee and the legend
+    for (let r = 5 + n; r < 5 + n + 2; r++) for (let c = 1; c <= 4 + days; c++) assert.ok(ws.getRow(r).getCell(c).value === null, `leftover at ${r}:${c}`);
+    const legendRow = (() => { for (let r = 5 + n; r < 5 + n + 10; r++) if (ws.getRow(r).getCell(2).value === 'MC') return r; return -1; })();
+    assert.ok(legendRow > 0, 'legend follows the employees');
+    return ws;
+  };
+  await checkMonth(nov, 2026, 12);
+  await checkMonth(nov, 2026, 2);
+  await checkMonth(fs.readFileSync(path.join(FIX, 'October_timesheet_Filled.xlsx')), 2026, 11);
+
+  // only 5 employees: the 22-row form shrinks
+  const few = TS.defaults.defaultState();
+  few.employees = few.employees.filter((e, i) => i % 6 === 0);
+  await checkMonth(empty, 2026, 10, few);
+
+  // a form without employee rows and with a cover sheet in front
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(empty);
+  const ws = wb.worksheets[0];
+  ws.spliceRows(5, 22);
+  const cover = wb.addWorksheet('Cover');
+  cover.getCell('A1').value = 'Read me';
+  wb.worksheets.unshift(wb.worksheets.pop());
+  const odd = await wb.xlsx.writeBuffer();
+  const out = await TS.excel.exportMonth(state, 2026, 10, odd);
+  assert.notStrictEqual(out.source, 'builtin');
+  const back = new ExcelJS.Workbook();
+  await back.xlsx.load(out.bytes);
+  const sheet = back.worksheets.find((w) => w.name === 'October 2026');
+  assert.ok(sheet, 'timesheet sheet renamed');
+  assert.strictEqual(sheet.getRow(5).getCell(3).value, state.employees[0].name);
+});
+
+test('rotation: "only 1 day" is ignored unless the group starts on the 1st', () => {
+  const p = TS.rotation.pattern({ group: 'A', startDay: 3, oneDay: true }, 2, 10);
+  assert.deepStrictEqual(p.slice(1, 7), ['B', 'B', 'A', 'A', 'B', 'B']);
+});

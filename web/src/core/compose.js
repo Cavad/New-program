@@ -140,7 +140,7 @@
       if (emp.category === 'rotation') (emp.group === 'B' ? groupB++ : groupA++);
       if (emp.category === 'shift' && !rec.imported[emp.id]) {
         const anyOverride = Object.keys(rec.overrides[emp.id] || {}).length > 0;
-        if (!anyOverride) warnings.push({ level: 'warn', key: 'noImport', empId: emp.id, row: idx });
+        if (!anyOverride) warnings.push({ level: 'error', key: 'noImport', empId: emp.id, row: idx });
       }
       for (let d = 1; d <= days; d++) {
         const c = row.cells[d];
