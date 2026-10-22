@@ -1,16 +1,16 @@
 {
-  "name": "web",
+  "name": "timesheet-studio",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Timesheet Studio - monthly timesheet preparation",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "node build.mjs",
+    "test": "node --test ../tests/"
   },
-  "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
     "exceljs": "^4.4.0",
     "xlsx": "^0.18.5"
-  }
+  },
+  "private": true
 }

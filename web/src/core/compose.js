@@ -37,10 +37,11 @@
     if (!state.settings.applyHolidays) return null;
     const iso = U.isoDate(year, month, day);
     const md = iso.slice(5);
-    for (const h of state.holidays || []) {
-      if (h.date === iso || h.date === md) return h;
-    }
-    return null;
+    const list = state.holidays || [];
+    // a dated entry (YYYY-MM-DD) beats the yearly one (MM-DD); `off` marks "normal working day this year"
+    const specific = list.find((h) => h.date === iso);
+    if (specific) return specific.off ? null : specific;
+    return list.find((h) => h.date === md) || null;
   }
 
   function findCode(state, value, category) {
@@ -180,5 +181,14 @@
     return rec.overrides[empId][day];
   }
 
-  TS.compose = { emptyMonth, getMonth, suggestRotation, holidayFor, findCode, canonicalValue, composeMonth, setOverride, getOverride, blockLen };
+  /** Default (non-edited) value of one cell. */
+  function defaultFor(state, year, month, emp, day) {
+    const rec = getMonth(state, year, month, false);
+    const cfg = rec.rotation || suggestRotation(state, year, month);
+    const pat = TS.rotation.pattern(cfg, blockLen(state), U.daysInMonth(year, month));
+    return defaultValue(state, emp, rec, year, month, day, pat).v;
+  }
+
+  TS.compose = {
+    defaultFor, emptyMonth, getMonth, suggestRotation, holidayFor, findCode, canonicalValue, composeMonth, setOverride, getOverride, blockLen };
 })(typeof window !== 'undefined' ? window : globalThis);
